@@ -12,7 +12,7 @@ TEMP_DIR = "temp_uploads"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # -------------------------------------------------------------
-# 🚀 性能优化：内存缓存处理，避免滑动质量条卡顿
+# 🚀 性能优化：内存缓存处理
 # -------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def process_and_compress_image(raw_bytes, quality):
@@ -37,7 +37,7 @@ def process_and_compress_image(raw_bytes, quality):
 
 @st.cache_data(show_spinner=False)
 def generate_preview_thumbnail(file_bytes, max_size=(1024, 1024)):
-    """生成轻量级预览缩略图，解决加载慢的问题"""
+    """生成轻量级预览缩略图"""
     img = Image.open(io.BytesIO(file_bytes))
     img.thumbnail(max_size, Image.Resampling.LANCZOS)
     buf = io.BytesIO()
@@ -91,11 +91,11 @@ if file_id:
             st.rerun()
 
 # =============================================================
-# 场景 B：主页面（压缩按钮触发暂存）
+# 场景 B：主页面（一键批量压缩暂存）
 # =============================================================
 else:
     st.markdown("<h2 style='text-align: center;'>本地图片批量压缩工具</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>🔒 云端极速内存渲染 · 确认后再暂存入云端</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>🔒 云端极速内存渲染 · 支持一键批量处理</p>", unsafe_allow_html=True)
 
     # 1. 控制卡片区
     with st.container(border=True):
@@ -128,23 +128,38 @@ else:
         paste_result.image_data.convert("RGB").save(buf, format="JPEG")
         images_to_process.append({"bytes": buf.getvalue()})
 
-    # 3. 待处理列表（含手动作“压缩并暂存”按钮）
+    # 3. 待处理列表 & ⚡ 批量压缩大按键
     if images_to_process:
         st.divider()
-        st.subheader(f"🖼️ 待处理图片列表 ({len(images_to_process)}张)")
+        
+        # 🌟 一键批量压缩大按键 🌟
+        if st.button(f"⚡ 一键压缩并暂存所有图片 ({len(images_to_process)}张)", type="primary", use_container_width=True):
+            for idx, item in enumerate(images_to_process):
+                raw_bytes = item["bytes"]
+                compressed_bytes, _, _ = process_and_compress_image(raw_bytes, quality)
+                
+                rand_num = f"{random.randint(0, 9999):04d}"
+                out_filename = f"IMG_{rand_num}.jpg"
+                save_filename = f"{rand_num}_{out_filename}"
+                save_path = os.path.join(TEMP_DIR, save_filename)
+                
+                with open(save_path, "wb") as f_out:
+                    f_out.write(compressed_bytes)
+            
+            st.toast(f"成功处理并暂存了 {len(images_to_process)} 张图片！", icon="✅")
+            st.rerun()
+
+        st.subheader(f"🖼️ 待处理列表")
 
         for idx, item in enumerate(images_to_process):
             with st.container(border=True):
                 raw_bytes = item["bytes"]
                 orig_size_kb = len(raw_bytes) / 1024
                 
-                # 内存中实时测算体积与渲染
                 compressed_bytes, img_w, img_h = process_and_compress_image(raw_bytes, quality)
                 compressed_size_kb = len(compressed_bytes) / 1024
-                
                 reduce_pct = ((orig_size_kb - compressed_size_kb) / orig_size_kb) * 100
 
-                # 布局展示
                 p_col1, p_col2 = st.columns([1, 2])
                 with p_col1:
                     st.image(compressed_bytes, use_container_width=True)
@@ -153,20 +168,6 @@ else:
                     st.caption(f"尺寸：{img_w} x {img_h} px")
                     st.markdown(f"**体积预估**：{orig_size_kb:.1f} KB ➔ **{compressed_size_kb:.1f} KB** "
                                 f"(`{reduce_pct:+.1f}%`) ")
-
-                    # 点击按钮执行写入磁盘与暂存动作
-                    if st.button("⚡ 压缩图片并暂存到云端", type="primary", key=f"do_compress_{idx}"):
-                        rand_num = f"{random.randint(0, 9999):04d}"
-                        out_filename = f"IMG_{rand_num}.jpg"
-                        save_filename = f"{rand_num}_{out_filename}"
-                        save_path = os.path.join(TEMP_DIR, save_filename)
-                        
-                        # 写入文件
-                        with open(save_path, "wb") as f_out:
-                            f_out.write(compressed_bytes)
-                        
-                        st.toast(f"压缩成功！已保存为 {out_filename}", icon="✅")
-                        st.rerun()
 
     st.divider()
 
@@ -210,4 +211,4 @@ else:
                         key=f"d_{fname}"
                     )
     else:
-        st.caption("暂无暂存文件，点击上方【⚡ 压缩图片并暂存到云端】后会出现在这里。")
+        st.caption("暂无暂存文件，点击上方【⚡ 一键压缩并暂存所有图片】后会出现在这里。")
