@@ -12,7 +12,7 @@ TEMP_DIR = "temp_uploads"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # -------------------------------------------------------------
-# 🚀 性能优化：内存缓存处理
+# 🚀 性能优化与缓存
 # -------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def process_and_compress_image(raw_bytes, quality):
@@ -46,13 +46,6 @@ def generate_preview_thumbnail(file_bytes, max_size=(1024, 1024)):
     img.save(buf, format="JPEG", quality=80)
     return buf.getvalue()
 
-def get_file_bytes(filepath):
-    """安全读取二进制文件，防止下载时句柄中断"""
-    if os.path.exists(filepath):
-        with open(filepath, "rb") as f:
-            return f.read()
-    return None
-
 # 处理 URL 参数（链接查看逻辑）
 query_params = st.query_params
 file_id = query_params.get("id", None)
@@ -69,9 +62,10 @@ if file_id:
         file_path = os.path.join(TEMP_DIR, target_filename)
         display_name = target_filename.split("_", 1)[1] if "_" in target_filename else target_filename
         
-        full_file_bytes = get_file_bytes(file_path)
+        if os.path.exists(file_path):
+            with open(file_path, "rb") as f:
+                full_file_bytes = f.read()
 
-        if full_file_bytes:
             file_size_kb = len(full_file_bytes) / 1024
 
             st.download_button(
@@ -81,13 +75,13 @@ if file_id:
                 mime="image/jpeg",
                 type="primary",
                 use_container_width=True,
-                key="view_page_download_btn"
+                key="share_view_dl_btn"
             )
             
             preview_bytes = generate_preview_thumbnail(full_file_bytes)
             st.image(preview_bytes, caption=f"预览图 - {display_name}", use_container_width=True)
         else:
-            st.error("❌ 读取文件失败，文件可能被损坏！")
+            st.error("❌ 该文件已被抹除！")
 
         st.divider()
         if st.button("⬅️ 返回压缩主页"):
@@ -100,7 +94,7 @@ if file_id:
             st.rerun()
 
 # =============================================================
-# 场景 B：主页面（一键批量压缩暂存）
+# 场景 B：主页面（彻底修复下载逻辑版）
 # =============================================================
 else:
     st.markdown("<h2 style='text-align: center;'>本地图片批量压缩工具</h2>", unsafe_allow_html=True)
@@ -179,8 +173,8 @@ else:
 
     st.divider()
 
-    # 4. 底部暂存列表 & 一键删除区 (已修复下载逻辑)
-    files = os.listdir(TEMP_DIR)
+    # 4. 底部暂存列表 & 一键删除区 (彻底修复下载响应)
+    files = [f for f in os.listdir(TEMP_DIR) if os.path.isfile(os.path.join(TEMP_DIR, f))]
     
     top_col1, top_col2 = st.columns([3, 1])
     with top_col1:
@@ -196,30 +190,30 @@ else:
                 st.rerun()
 
     if files:
-        for fname in files:
+        for idx, fname in enumerate(files):
             fid = fname.split("_")[0]
             display_name = fname.split("_", 1)[1] if "_" in fname else fname
             fpath = os.path.join(TEMP_DIR, fname)
             fsize = os.path.getsize(fpath) / 1024
             
-            # 安全提前读取文件数据，保证下载按钮在任何刷新阶段均可用
-            fbytes = get_file_bytes(fpath)
-            
-            if fbytes:
-                c1, c2, c3 = st.columns([2.5, 1, 1.2])
-                with c1:
-                    st.text(f"📄 {display_name} ({fsize:.1f} KB)")
-                with c2:
-                    if st.button("查看/直链", key=f"v_{fname}"):
-                        st.query_params["id"] = fid
-                        st.rerun()
-                with c3:
-                    st.download_button(
-                        label="下载", 
-                        data=fbytes, 
-                        file_name=display_name, 
-                        mime="image/jpeg", 
-                        key=f"download_btn_{fname}"
-                    )
+            c1, c2, c3 = st.columns([2.5, 1, 1.2])
+            with c1:
+                st.text(f"📄 {display_name} ({fsize:.1f} KB)")
+            with c2:
+                if st.button("查看/直链", key=f"view_btn_{idx}_{fid}"):
+                    st.query_params["id"] = fid
+                    st.rerun()
+            with c3:
+                # 使用 with open 块确保文件在渲染下载控件时被瞬间正确锁入内存
+                with open(fpath, "rb") as f_data:
+                    data_bytes = f_data.read()
+                    
+                st.download_button(
+                    label="下载", 
+                    data=data_bytes, 
+                    file_name=display_name, 
+                    mime="image/jpeg", 
+                    key=f"temp_dl_btn_{idx}_{fid}"
+                )
     else:
         st.caption("暂无暂存文件，点击上方【⚡ 一键压缩并暂存所有图片】后会出现在这里。")
