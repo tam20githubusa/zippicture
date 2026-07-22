@@ -26,13 +26,15 @@ if file_id:
         target_filename = matched_files[0]
         file_path = os.path.join(TEMP_DIR, target_filename)
         
-        st.image(file_path, caption=f"文件名: {target_filename}", width="stretch")
+        # 显示直链图片
+        display_name = target_filename.split("_", 1)[1] if "_" in target_filename else target_filename
+        st.image(file_path, caption=f"文件名: {display_name}", width="stretch")
         
         with open(file_path, "rb") as f:
             st.download_button(
                 label="⬇️ 下载这张图片",
                 data=f.read(),
-                file_name=target_filename,
+                file_name=display_name,
                 mime="image/jpeg",
                 type="primary"
             )
@@ -47,22 +49,20 @@ if file_id:
             st.rerun()
 
 # =============================================================
-# 场景 B：主页面（压缩、批量处理、一键删除）
+# 场景 B：主页面（压缩、批量处理、自动暂存、一键删除）
 # =============================================================
 else:
     st.markdown("<h2 style='text-align: center;'>本地图片批量压缩工具</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #666;'>🔒 云端临时环境运行 · 拖动滑块实时无感测算大小</p>", unsafe_allow_html=True)
 
-    # 1. 控制卡片区
+    # 1. 控制卡片区（双列布局：压缩质量 + 强制输出格式）
     with st.container(border=True):
-        col1, col2, col3 = st.columns([2, 1.2, 1.2])
+        col1, col2 = st.columns([2, 1])
         
         with col1:
             quality = st.slider("压缩质量", min_value=1, max_value=100, value=75, format="%d%%")
         with col2:
             st.selectbox("输出格式", ["JPEG"], disabled=True)
-        with col3:
-            max_width = st.number_input("限制最大宽度 (0为不缩放)", min_value=0, max_value=8000, value=0, step=100)
 
     # 2. 上传与粘贴栏
     uploaded_files = st.file_uploader(
@@ -87,7 +87,7 @@ else:
         paste_result.image_data.convert("RGB").save(buf, format="JPEG")
         images_to_process.append({"bytes": buf.getvalue()})
 
-    # 3. 压缩与预览区
+    # 3. 压缩与预览区（自动写盘存入云端）
     if images_to_process:
         st.divider()
         st.subheader(f"🖼️ 待处理图片列表 ({len(images_to_process)}张)")
@@ -99,11 +99,7 @@ else:
                 
                 img = Image.open(io.BytesIO(raw_bytes))
                 
-                if max_width > 0 and img.width > max_width:
-                    w_percent = (max_width / float(img.width))
-                    h_size = int((float(img.height) * float(w_percent)))
-                    img = img.resize((max_width, h_size), Image.Resampling.LANCZOS)
-                
+                # 转换色彩模式为 RGB (透明背景填充白色)
                 if img.mode in ("RGBA", "P", "LA"):
                     bg = Image.new("RGB", img.size, (255, 255, 255))
                     if img.mode == "RGBA":
@@ -114,6 +110,7 @@ else:
                 elif img.mode != "RGB":
                     img = img.convert("RGB")
 
+                # 内存压缩
                 compressed_buf = io.BytesIO()
                 img.save(compressed_buf, format="JPEG", quality=quality, optimize=True)
                 compressed_bytes = compressed_buf.getvalue()
@@ -121,10 +118,17 @@ else:
                 
                 reduce_pct = ((orig_size_kb - compressed_size_kb) / orig_size_kb) * 100
 
-                # 生成随机 4 位数字文件名，如 IMG_8392.jpg
+                # 生成 4 位随机数字文件名
                 rand_num = f"{random.randint(0, 9999):04d}"
                 out_filename = f"IMG_{rand_num}.jpg"
 
+                # 自动暂存入本地云端目录
+                save_filename = f"{rand_num}_{out_filename}"
+                save_path = os.path.join(TEMP_DIR, save_filename)
+                with open(save_path, "wb") as f_out:
+                    f_out.write(compressed_bytes)
+
+                # 展示与操作
                 p_col1, p_col2 = st.columns([1, 2])
                 with p_col1:
                     st.image(compressed_bytes, width="stretch")
@@ -147,16 +151,8 @@ else:
                             key=f"dl_{idx}_{rand_num}"
                         )
                     with btn_c2:
-                        if st.button("🔗 生成分享链接", key=f"share_{idx}_{rand_num}"):
-                            # 存储文件格式：[随机ID]_[文件名]，用于 URL 匹配
-                            save_filename = f"{rand_num}_{out_filename}"
-                            save_path = os.path.join(TEMP_DIR, save_filename)
-
-                            with open(save_path, "wb") as f_out:
-                                f_out.write(compressed_bytes)
-
-                            st.success("已生成云端临时链接！")
-                            st.code(f"?id={rand_num}", language="text")
+                        st.caption("🔗 分享后缀：")
+                        st.code(f"?id={rand_num}", language="text")
 
     st.divider()
 
@@ -167,7 +163,6 @@ else:
     with top_col1:
         st.subheader("📁 云端已暂存的临时文件")
     with top_col2:
-        # 一键删除所有暂存图片的按钮
         if files:
             if st.button("🗑️ 清空所有暂存", type="secondary"):
                 for fname in files:
@@ -179,7 +174,6 @@ else:
 
     if files:
         for fname in files:
-            # 文件名提取（去除前缀识别码，展示标准的 IMG_xxxx.jpg）
             fid = fname.split("_")[0]
             display_name = fname.split("_", 1)[1] if "_" in fname else fname
             fpath = os.path.join(TEMP_DIR, fname)
