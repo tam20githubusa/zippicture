@@ -12,7 +12,21 @@ TEMP_DIR = "temp_uploads"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # -------------------------------------------------------------
-# 🚀 性能优化：高速压缩 & 超小微型缩略图生成 (仅 2~5 KB，不占 CPU)
+# 🚀 自定义 CSS 样式（让按钮更大、更显眼、更好点）
+# -------------------------------------------------------------
+st.markdown("""
+<style>
+/* 放大并美化底部的下载按钮，提高手感 */
+div[data-testid="stDownloadButton"] > button {
+    width: 100%;
+    min-height: 42px;
+    font-weight: 600;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# -------------------------------------------------------------
+# 🚀 性能优化：高清压缩 + 适中尺寸缩略图 (280px，既清晰又极快)
 # -------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def process_and_compress_image(raw_bytes, quality):
@@ -33,15 +47,15 @@ def process_and_compress_image(raw_bytes, quality):
     return compressed_buf.getvalue(), img.width, img.height
 
 @st.cache_data(show_spinner=False)
-def generate_tiny_thumbnail(raw_bytes, max_size=(160, 160)):
-    """生成极小尺寸微型缩略图（约 3KB），瞬间加载不卡顿"""
+def generate_medium_thumbnail(raw_bytes, max_size=(280, 280)):
+    """生成放大后的适中缩略图（约 10~15 KB），兼顾清晰度与加载速度"""
     img = Image.open(io.BytesIO(raw_bytes))
     if img.mode != "RGB":
         img = img.convert("RGB")
-    # 高效等比例缩放到最大 160px
+    # 动态缩放到最大 280px，看得清细节又不卡 CPU
     img.thumbnail(max_size, Image.Resampling.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=60)
+    img.save(buf, format="JPEG", quality=75)
     return buf.getvalue()
 
 # 处理 URL 参数（链接查看逻辑）
@@ -65,18 +79,19 @@ if file_id:
 
         file_size_kb = len(full_file_bytes) / 1024
 
-        col_left, col_right = st.columns([1, 2])
+        col_left, col_right = st.columns([1.2, 2])
         with col_left:
-            # 显示微缩图预览
-            tiny_thumb = generate_tiny_thumbnail(full_file_bytes, max_size=(240, 240))
-            st.image(tiny_thumb, caption="微缩预览")
+            # 适中预览图
+            med_thumb = generate_medium_thumbnail(full_file_bytes, max_size=(320, 320))
+            st.image(med_thumb, caption="清晰预览", use_container_width=True)
         with col_right:
             st.success(f"📄 **{display_name}**")
             st.caption(f"文件大小：{file_size_kb:.1f} KB")
+            st.write("")
             
-            # 秒级下载
+            # 秒级大按钮下载
             st.download_button(
-                label="⬇️ 一键下载原图",
+                label=f"⬇️ 一键下载原图 ({file_size_kb:.1f} KB)",
                 data=full_file_bytes,
                 file_name=display_name,
                 mime="image/jpeg",
@@ -92,11 +107,11 @@ if file_id:
         st.markdown('<a href="/" target="_self" style="display:inline-block; padding:0.5rem 1rem; background-color:#F0F2F6; color:#333; text-decoration:none; border-radius:8px;">返回首页</a>', unsafe_allow_html=True)
 
 # =============================================================
-# 场景 B：主页面（支持微缩图预览 + 稳定下载）
+# 场景 B：主页面（放大版高清预览 + 100% 秒下载）
 # =============================================================
 else:
     st.markdown("<h2 style='text-align: center;'>⚡ 极速图片批量压缩工具</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>🔒 微型缩略图加载 · 秒级打包暂存与下载</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>🔒 高清清晰预览 · 秒级打包暂存与下载</p>", unsafe_allow_html=True)
 
     # 1. 控制卡片区
     with st.container(border=True):
@@ -150,7 +165,7 @@ else:
 
         st.subheader(f"🖼️ 待处理列表")
 
-        # 使用超小微缩图预览（极小数据量，绝不卡死 CPU）
+        # 放大的预览排版（180px - 280px）
         for idx, item in enumerate(images_to_process):
             raw_bytes = item["bytes"]
             orig_size_kb = len(raw_bytes) / 1024
@@ -159,16 +174,16 @@ else:
             compressed_size_kb = len(compressed_bytes) / 1024
             reduce_pct = ((orig_size_kb - compressed_size_kb) / orig_size_kb) * 100
             
-            # 生成微图
-            tiny_bytes = generate_tiny_thumbnail(raw_bytes)
+            med_bytes = generate_medium_thumbnail(raw_bytes)
 
             with st.container(border=True):
-                p_col1, p_col2 = st.columns([1, 4])
+                p_col1, p_col2 = st.columns([1, 2.5])
                 with p_col1:
-                    st.image(tiny_bytes, width=100) # 固定 100 像素展示
+                    st.image(med_bytes, use_container_width=True) # 撑满左侧一栏，放大且清晰
                 with p_col2:
                     st.markdown(f"📄 **{item['name']}** (`{img_w}x{img_h}px`)")
-                    st.caption(f"体积变动：{orig_size_kb:.1f} KB ➔ **{compressed_size_kb:.1f} KB** (`{reduce_pct:+.1f}%`) ")
+                    st.markdown(f"原始体积：`{orig_size_kb:.1f} KB`")
+                    st.markdown(f"预估压缩：**{compressed_size_kb:.1f} KB** (`{reduce_pct:+.1f}%`) ")
 
     st.divider()
 
@@ -198,23 +213,24 @@ else:
             with open(fpath, "rb") as f_item:
                 f_bytes = f_item.read()
 
-            # 底部列表也渲染小图标
-            tiny_b = generate_tiny_thumbnail(f_bytes)
+            med_b = generate_medium_thumbnail(f_bytes)
 
-            c0, c1, c2, c3 = st.columns([0.8, 2, 1, 1])
+            c0, c1, c2, c3 = st.columns([1, 2, 1, 1.2])
             with c0:
-                st.image(tiny_b, width=50)
+                st.image(med_b, use_container_width=True) # 暂存列表中也进行了放大显示
             with c1:
-                st.text(f"{display_name}\n({fsize:.1f} KB)")
+                st.markdown(f"**{display_name}**")
+                st.caption(f"体积: {fsize:.1f} KB")
             with c2:
-                st.markdown(f'<a href="?id={fid}" target="_self" style="display:block; text-align:center; padding:0.4rem; background:#F0F2F6; color:#333; border-radius:6px; text-decoration:none; font-size:0.85rem;">👁️ 查看</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="?id={fid}" target="_self" style="display:block; text-align:center; padding:0.5rem; background:#F0F2F6; color:#333; border-radius:8px; text-decoration:none; font-size:0.85rem; font-weight:500;">👁️ 查看</a>', unsafe_allow_html=True)
             with c3:
                 st.download_button(
                     label="⬇️ 下载", 
                     data=f_bytes, 
                     file_name=display_name, 
                     mime="image/jpeg", 
-                    key=f"tiny_dl_{idx}_{fid}"
+                    type="primary",
+                    key=f"med_dl_{idx}_{fid}"
                 )
     else:
         st.caption("暂无文件，点击上方【一键压缩并暂存所有图片】即可生成。")
