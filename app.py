@@ -13,7 +13,7 @@ TEMP_DIR = "temp_uploads"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # -------------------------------------------------------------
-# 🚀 辅助函数：将文件转换为原生 HTML 下载链接 (彻底解决下载失效)
+# 🚀 辅助函数：原生 HTML 下载 & 原生 HTML 跳转链接
 # -------------------------------------------------------------
 def get_binary_file_downloader_html(bin_data, file_label='下载', file_name='image.jpg'):
     """生成不依赖 Streamlit 重绘机制的原生下载按钮"""
@@ -39,6 +39,33 @@ def get_binary_file_downloader_html(bin_data, file_label='下载', file_name='im
     </style>
     """
     href = f'{custom_css}<a href="data:image/jpeg;base64,{b64}" download="{file_name}" class="native-dl-btn">⬇️ {file_label}</a>'
+    return href
+
+def get_link_view_html(fid):
+    """生成原生 HTML 链接按钮，解决点击查看没反应的问题"""
+    custom_css = """
+    <style>
+    .native-view-btn {
+        display: inline-block;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: #31333F !important;
+        background-color: #F0F2F6;
+        border: 1px solid #D6D6D6;
+        border-radius: 8px;
+        text-decoration: none !important;
+        text-align: center;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .native-view-btn:hover {
+        background-color: #E0E2E6;
+        color: #000000 !important;
+    }
+    </style>
+    """
+    href = f'{custom_css}<a href="?id={fid}" target="_self" class="native-view-btn">👁️ 查看/直链</a>'
     return href
 
 @st.cache_data(show_spinner=False)
@@ -94,26 +121,23 @@ if file_id:
 
         file_size_kb = len(full_file_bytes) / 1024
 
-        # 使用原生 HTML 下载组件
+        # 原生下载组件
         html_btn = get_binary_file_downloader_html(full_file_bytes, file_label=f"立即下载该图片 ({file_size_kb:.1f} KB)", file_name=display_name)
         st.markdown(html_btn, unsafe_allow_html=True)
-        st.write("") # 间距
+        st.write("")
         
         preview_bytes = generate_preview_thumbnail(full_file_bytes)
         st.image(preview_bytes, caption=f"预览图 - {display_name}", use_container_width=True)
 
         st.divider()
-        if st.button("⬅️ 返回压缩主页"):
-            st.query_params.clear()
-            st.rerun()
+        # 使用原生链接返回首页
+        st.markdown('<a href="/" target="_self" style="display:inline-block; padding:0.5rem 1rem; background-color:#F0F2F6; color:#333; text-decoration:none; border-radius:8px;">⬅️ 返回压缩主页</a>', unsafe_allow_html=True)
     else:
         st.error("❌ 该图片不存在或已被彻底清除！")
-        if st.button("返回首页"):
-            st.query_params.clear()
-            st.rerun()
+        st.markdown('<a href="/" target="_self" style="display:inline-block; padding:0.5rem 1rem; background-color:#F0F2F6; color:#333; text-decoration:none; border-radius:8px;">返回首页</a>', unsafe_allow_html=True)
 
 # =============================================================
-# 场景 B：主页面（支持批量压缩与原生稳定下载）
+# 场景 B：主页面（支持批量压缩与原生稳定下载/查看）
 # =============================================================
 else:
     st.markdown("<h2 style='text-align: center;'>本地图片批量压缩工具</h2>", unsafe_allow_html=True)
@@ -192,7 +216,7 @@ else:
 
     st.divider()
 
-    # 4. 底部暂存列表 & 一键删除区 (100% 成功原生下载)
+    # 4. 底部暂存列表 & 一键删除区
     files = [f for f in os.listdir(TEMP_DIR) if os.path.isfile(os.path.join(TEMP_DIR, f))]
     
     top_col1, top_col2 = st.columns([3, 1])
@@ -215,15 +239,15 @@ else:
             fpath = os.path.join(TEMP_DIR, fname)
             fsize = os.path.getsize(fpath) / 1024
             
-            c1, c2, c3 = st.columns([2.5, 1, 1.2])
+            c1, c2, c3 = st.columns([2.5, 1.2, 1.2])
             with c1:
                 st.text(f"📄 {display_name} ({fsize:.1f} KB)")
             with c2:
-                if st.button("查看/直链", key=f"v_{fname}"):
-                    st.query_params["id"] = fid
-                    st.rerun()
+                # 🌟 改用 HTML 原生超链接，解决点击查看按钮没反应的问题 🌟
+                view_html = get_link_view_html(fid)
+                st.markdown(view_html, unsafe_allow_html=True)
             with c3:
-                # 读取文件并注入原生 HTML 链接下载，不经过 Streamlit 后端，避免中断
+                # 读取文件并注入原生 HTML 链接下载
                 with open(fpath, "rb") as f_item:
                     f_bytes = f_item.read()
                 dl_html = get_binary_file_downloader_html(f_bytes, file_label="下载", file_name=display_name)
