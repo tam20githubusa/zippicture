@@ -12,14 +12,13 @@ TEMP_DIR = "temp_uploads"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # -------------------------------------------------------------
-# 🚀 性能优化：使用内存缓存加速图片解析
+# 🚀 性能优化：使用内存缓存加速图片解析与预览生成
 # -------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def process_and_compress_image(raw_bytes, quality):
     """在内存中快速压缩图片，避免频繁磁盘 I/O"""
     img = Image.open(io.BytesIO(raw_bytes))
     
-    # 转换色彩模式为 RGB (透明背景填充白色)
     if img.mode in ("RGBA", "P", "LA"):
         bg = Image.new("RGB", img.size, (255, 255, 255))
         if img.mode == "RGBA":
@@ -30,19 +29,29 @@ def process_and_compress_image(raw_bytes, quality):
     elif img.mode != "RGB":
         img = img.convert("RGB")
 
-    # 内存中压缩为 JPEG
     compressed_buf = io.BytesIO()
     img.save(compressed_buf, format="JPEG", quality=quality, optimize=True)
     compressed_bytes = compressed_buf.getvalue()
     
     return compressed_bytes, img.width, img.height
 
+@st.cache_data(show_spinner=False)
+def generate_preview_thumbnail(file_bytes, max_size=(1024, 1024)):
+    """专为场景 A 打造：生成小体积预览图，解决一行行极慢加载的问题"""
+    img = Image.open(io.BytesIO(file_bytes))
+    img.thumbnail(max_size, Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img.save(buf, format="JPEG", quality=80)
+    return buf.getvalue()
+
 # 处理 URL 参数（链接查看逻辑）
 query_params = st.query_params
 file_id = query_params.get("id", None)
 
 # =============================================================
-# 场景 A：凭借专属链接/点击查看已暂存图片 (修复下载逻辑)
+# 场景 A：凭借专属链接查看图片 (极速加载 + 正常下载)
 # =============================================================
 if file_id:
     st.title("🖼️ 查看/下载图片")
@@ -53,23 +62,27 @@ if file_id:
         file_path = os.path.join(TEMP_DIR, target_filename)
         display_name = target_filename.split("_", 1)[1] if "_" in target_filename else target_filename
         
-        # 1. 明确读取磁盘中的二进制数据
+        # 1. 一次性读取完整高清二进制数据（用于下载）
         with open(file_path, "rb") as f:
-            file_bytes = f.read()
+            full_file_bytes = f.read()
 
-        # 2. 展示图片预览
-        st.image(file_bytes, caption=f"文件名: {display_name}", width="stretch")
-        
-        # 3. 修复这里的下载按钮（明确指定 key 和 mime 类型）
+        file_size_kb = len(full_file_bytes) / 1024
+
+        # 2. 优先放置下载按钮（确保下载体验流畅，不用等大图加载完毕）
         st.download_button(
-            label="⬇️ 一键下载此 JPEG 图片",
-            data=file_bytes,
+            label=f"⬇️ 立即下载该 JPEG 图片 ({file_size_kb:.1f} KB)",
+            data=full_file_bytes,
             file_name=display_name,
             mime="image/jpeg",
             type="primary",
+            use_container_width=True,
             key="view_page_download_btn"
         )
         
+        # 3. 内存生成轻量级缩略图渲染，防止网页崩溃或一行行极慢加载
+        preview_bytes = generate_preview_thumbnail(full_file_bytes)
+        st.image(preview_bytes, caption=f"预览图 - {display_name}", use_container_width=True)
+
         st.divider()
         if st.button("⬅️ 返回压缩主页"):
             st.query_params.clear()
@@ -107,7 +120,6 @@ else:
     with paste_col1:
         paste_result = paste_image_button("📋 粘贴剪贴板图片", key="paste_btn")
     
-    # 整合上传与粘贴图片
     images_to_process = []
 
     if uploaded_files:
@@ -129,20 +141,17 @@ else:
                 raw_bytes = item["bytes"]
                 orig_size_kb = len(raw_bytes) / 1024
                 
-                # 调用带缓存的高速处理函数
                 compressed_bytes, img_w, img_h = process_and_compress_image(raw_bytes, quality)
                 compressed_size_kb = len(compressed_bytes) / 1024
                 
                 reduce_pct = ((orig_size_kb - compressed_size_kb) / orig_size_kb) * 100
 
-                # 生成预设文件名
                 rand_num = f"{random.randint(0, 9999):04d}"
                 out_filename = f"IMG_{rand_num}.jpg"
 
-                # 布局展示
                 p_col1, p_col2 = st.columns([1, 2])
                 with p_col1:
-                    st.image(compressed_bytes, width="stretch")
+                    st.image(compressed_bytes, use_container_width=True)
                 
                 with p_col2:
                     st.markdown(f"**预设文件名**：`{out_filename}`")
