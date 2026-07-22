@@ -1,0 +1,1 @@
+pip install streamlit pillow streamlit-paste-button
