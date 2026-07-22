@@ -3,7 +3,6 @@ import uuid
 import io
 import streamlit as st
 from PIL import Image
-# 引入剪贴板粘贴按钮组件
 from streamlit_paste_button import paste_image_button
 
 # 页面基础配置
@@ -27,7 +26,8 @@ if file_id:
         target_filename = matched_files[0]
         file_path = os.path.join(TEMP_DIR, target_filename)
         
-        st.image(file_path, caption=f"文件名: {target_filename}", use_container_width=True)
+        # 兼容最新 Streamlit width 语法
+        st.image(file_path, caption=f"文件名: {target_filename}", width="stretch")
         
         with open(file_path, "rb") as f:
             st.download_button(
@@ -48,12 +48,12 @@ if file_id:
             st.rerun()
 
 # =============================================================
-# 场景 B：主页面（参考参考图布局 + 粘贴导入 + 批量处理）
+# 场景 B：主页面（卡片布局 + 粘贴导入 + 批量处理）
 # =============================================================
 else:
     # 顶部标题与副标题
     st.markdown("<h2 style='text-align: center;'>本地图片批量压缩工具</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>🔒 云端临时环境处理 · 拖动滑块实时计算大小</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>🔒 纯浏览器/云端临时环境运行 · 拖动滑块实时无感测算大小</p>", unsafe_allow_html=True)
 
     # ---------------------------------------------------------
     # 控制卡片区（模拟截图中的三列控制栏）
@@ -71,31 +71,26 @@ else:
     # ---------------------------------------------------------
     # 上传与粘贴栏
     # ---------------------------------------------------------
-    # 1. 拖拽/点击文件上传 (支持多选)
     uploaded_files = st.file_uploader(
         "点击选择或将图片拖拽到这里（支持多选）", 
         type=["jpg", "jpeg", "png", "webp"], 
         accept_multiple_files=True
     )
 
-    # 2. 剪贴板粘贴按钮 (从剪贴板读取图片)
-    paste_col1, paste_col2 = st.columns([1, 4])
+    paste_col1, paste_col2 = st.columns([1.5, 3.5])
     with paste_col1:
         paste_result = paste_image_button("📋 粘贴剪贴板图片", key="paste_btn")
     
     # ---------------------------------------------------------
-    # 统一处理图片列表 (整合上传的文件与粘贴的文件)
+    # 统一处理图片列表 (整合上传与粘贴)
     # ---------------------------------------------------------
     images_to_process = []
 
-    # 添加上传的文件
     if uploaded_files:
         for f in uploaded_files:
             images_to_process.append({"name": f.name, "bytes": f.getvalue()})
 
-    # 添加粘贴的文件
     if paste_result.image_data is not None:
-        # 将 PIL Image 转换为 bytes
         buf = io.BytesIO()
         paste_result.image_data.convert("RGB").save(buf, format="JPEG")
         images_to_process.append({"name": "pasted_image.jpg", "bytes": buf.getvalue()})
@@ -112,16 +107,15 @@ else:
                 raw_bytes = item["bytes"]
                 orig_size_kb = len(raw_bytes) / 1024
                 
-                # 读取图片
                 img = Image.open(io.BytesIO(raw_bytes))
                 
-                # 1. 处理最大宽度缩放
+                # 最大宽度缩放
                 if max_width > 0 and img.width > max_width:
                     w_percent = (max_width / float(img.width))
                     h_size = int((float(img.height) * float(w_percent)))
                     img = img.resize((max_width, h_size), Image.Resampling.LANCZOS)
                 
-                # 2. 强制转换 RGB（透明背景填充白色）
+                # 强制转换 RGB
                 if img.mode in ("RGBA", "P", "LA"):
                     bg = Image.new("RGB", img.size, (255, 255, 255))
                     if img.mode == "RGBA":
@@ -132,7 +126,7 @@ else:
                 elif img.mode != "RGB":
                     img = img.convert("RGB")
 
-                # 3. 压成 JPEG 字节流
+                # 压缩到 JPEG 字节流
                 compressed_buf = io.BytesIO()
                 img.save(compressed_buf, format="JPEG", quality=quality, optimize=True)
                 compressed_bytes = compressed_buf.getvalue()
@@ -140,10 +134,9 @@ else:
                 
                 reduce_pct = ((orig_size_kb - compressed_size_kb) / orig_size_kb) * 100
 
-                # 布局呈现：左侧预览，右侧信息与操作
                 p_col1, p_col2 = st.columns([1, 2])
                 with p_col1:
-                    st.image(compressed_bytes, use_container_width=True)
+                    st.image(compressed_bytes, width="stretch")
                 
                 with p_col2:
                     st.markdown(f"**文件名**：`{item['name']}`")
@@ -152,8 +145,6 @@ else:
                                 f"(`{reduce_pct:+.1f}%`) ")
 
                     btn_c1, btn_c2 = st.columns(2)
-                    
-                    # 导出文件名
                     base_name = os.path.splitext(item['name'])[0]
                     out_filename = f"{base_name}_compressed.jpg"
 
@@ -181,7 +172,7 @@ else:
     st.divider()
 
     # 底部暂存列表
-    st.subheader("📁 已暂存的临时文件")
+    st.subheader("📁 云端已暂存的临时文件")
     files = os.listdir(TEMP_DIR)
     if files:
         for fname in files:
