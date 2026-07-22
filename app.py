@@ -102,7 +102,7 @@ else:
     with st.container(border=True):
         col1, col2 = st.columns([2, 1])
         with col1:
-            quality = st.slider("压缩质量", min_value=1, max_value=100, value=75, format="%d%%")
+            quality = st.slider("压缩质量", min_value=1, max_value=100, value=80, format="%d%%")
         with col2:
             st.selectbox("输出格式", ["JPEG"], disabled=True)
 
