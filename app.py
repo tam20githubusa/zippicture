@@ -11,12 +11,38 @@ st.set_page_config(page_title="本地图片批量压缩工具", layout="centered
 TEMP_DIR = "temp_uploads"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+# -------------------------------------------------------------
+# 🚀 性能优化：使用内存缓存加速图片解析
+# -------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def process_and_compress_image(raw_bytes, quality):
+    """在内存中快速压缩图片，避免频繁磁盘 I/O"""
+    img = Image.open(io.BytesIO(raw_bytes))
+    
+    # 转换色彩模式为 RGB (透明背景填充白色)
+    if img.mode in ("RGBA", "P", "LA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "RGBA":
+            bg.paste(img, mask=img.split()[3])
+        else:
+            bg.paste(img)
+        img = bg
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # 内存中压缩为 JPEG
+    compressed_buf = io.BytesIO()
+    img.save(compressed_buf, format="JPEG", quality=quality, optimize=True)
+    compressed_bytes = compressed_buf.getvalue()
+    
+    return compressed_bytes, img.width, img.height
+
 # 处理 URL 参数（链接查看逻辑）
 query_params = st.query_params
 file_id = query_params.get("id", None)
 
 # =============================================================
-# 场景 A：凭借专属链接查看图片
+# 场景 A：凭借专属链接/点击查看已暂存图片 (修复下载逻辑)
 # =============================================================
 if file_id:
     st.title("🖼️ 查看/下载图片")
@@ -25,21 +51,27 @@ if file_id:
     if matched_files:
         target_filename = matched_files[0]
         file_path = os.path.join(TEMP_DIR, target_filename)
-        
-        # 显示直链图片
         display_name = target_filename.split("_", 1)[1] if "_" in target_filename else target_filename
-        st.image(file_path, caption=f"文件名: {display_name}", width="stretch")
         
+        # 1. 明确读取磁盘中的二进制数据
         with open(file_path, "rb") as f:
-            st.download_button(
-                label="⬇️ 下载这张图片",
-                data=f.read(),
-                file_name=display_name,
-                mime="image/jpeg",
-                type="primary"
-            )
+            file_bytes = f.read()
+
+        # 2. 展示图片预览
+        st.image(file_bytes, caption=f"文件名: {display_name}", width="stretch")
+        
+        # 3. 修复这里的下载按钮（明确指定 key 和 mime 类型）
+        st.download_button(
+            label="⬇️ 一键下载此 JPEG 图片",
+            data=file_bytes,
+            file_name=display_name,
+            mime="image/jpeg",
+            type="primary",
+            key="view_page_download_btn"
+        )
+        
         st.divider()
-        if st.button("⬅️ 我也要压缩图片"):
+        if st.button("⬅️ 返回压缩主页"):
             st.query_params.clear()
             st.rerun()
     else:
@@ -49,13 +81,13 @@ if file_id:
             st.rerun()
 
 # =============================================================
-# 场景 B：主页面（压缩、批量处理、自动暂存、一键删除）
+# 场景 B：主页面（压缩、批量处理、内存优化版）
 # =============================================================
 else:
     st.markdown("<h2 style='text-align: center;'>本地图片批量压缩工具</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>🔒 云端临时环境运行 · 拖动滑块实时无感测算大小</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>🔒 云端极速内存渲染 · 拖动滑块无延迟预览</p>", unsafe_allow_html=True)
 
-    # 1. 控制卡片区（双列布局：压缩质量 + 强制输出格式）
+    # 1. 控制卡片区
     with st.container(border=True):
         col1, col2 = st.columns([2, 1])
         
@@ -87,7 +119,7 @@ else:
         paste_result.image_data.convert("RGB").save(buf, format="JPEG")
         images_to_process.append({"bytes": buf.getvalue()})
 
-    # 3. 压缩与预览区（自动写盘存入云端）
+    # 3. 极速预览区
     if images_to_process:
         st.divider()
         st.subheader(f"🖼️ 待处理图片列表 ({len(images_to_process)}张)")
@@ -97,45 +129,24 @@ else:
                 raw_bytes = item["bytes"]
                 orig_size_kb = len(raw_bytes) / 1024
                 
-                img = Image.open(io.BytesIO(raw_bytes))
-                
-                # 转换色彩模式为 RGB (透明背景填充白色)
-                if img.mode in ("RGBA", "P", "LA"):
-                    bg = Image.new("RGB", img.size, (255, 255, 255))
-                    if img.mode == "RGBA":
-                        bg.paste(img, mask=img.split()[3])
-                    else:
-                        bg.paste(img)
-                    img = bg
-                elif img.mode != "RGB":
-                    img = img.convert("RGB")
-
-                # 内存压缩
-                compressed_buf = io.BytesIO()
-                img.save(compressed_buf, format="JPEG", quality=quality, optimize=True)
-                compressed_bytes = compressed_buf.getvalue()
+                # 调用带缓存的高速处理函数
+                compressed_bytes, img_w, img_h = process_and_compress_image(raw_bytes, quality)
                 compressed_size_kb = len(compressed_bytes) / 1024
                 
                 reduce_pct = ((orig_size_kb - compressed_size_kb) / orig_size_kb) * 100
 
-                # 生成 4 位随机数字文件名
+                # 生成预设文件名
                 rand_num = f"{random.randint(0, 9999):04d}"
                 out_filename = f"IMG_{rand_num}.jpg"
 
-                # 自动暂存入本地云端目录
-                save_filename = f"{rand_num}_{out_filename}"
-                save_path = os.path.join(TEMP_DIR, save_filename)
-                with open(save_path, "wb") as f_out:
-                    f_out.write(compressed_bytes)
-
-                # 展示与操作
+                # 布局展示
                 p_col1, p_col2 = st.columns([1, 2])
                 with p_col1:
                     st.image(compressed_bytes, width="stretch")
                 
                 with p_col2:
                     st.markdown(f"**预设文件名**：`{out_filename}`")
-                    st.caption(f"尺寸：{img.width} x {img.height} px")
+                    st.caption(f"尺寸：{img_w} x {img_h} px")
                     st.markdown(f"**体积变动**：{orig_size_kb:.1f} KB ➔ **{compressed_size_kb:.1f} KB** "
                                 f"(`{reduce_pct:+.1f}%`) ")
 
@@ -151,8 +162,13 @@ else:
                             key=f"dl_{idx}_{rand_num}"
                         )
                     with btn_c2:
-                        st.caption("🔗 分享后缀：")
-                        st.code(f"?id={rand_num}", language="text")
+                        if st.button("🔗 生成分享链接", key=f"share_{idx}_{rand_num}"):
+                            save_filename = f"{rand_num}_{out_filename}"
+                            save_path = os.path.join(TEMP_DIR, save_filename)
+                            with open(save_path, "wb") as f_out:
+                                f_out.write(compressed_bytes)
+                            st.success("已生成直链！")
+                            st.code(f"?id={rand_num}", language="text")
 
     st.divider()
 
@@ -188,6 +204,12 @@ else:
                     st.rerun()
             with c3:
                 with open(fpath, "rb") as f_item:
-                    st.download_button("下载", f_item.read(), file_name=display_name, mime="image/jpeg", key=f"d_{fname}")
+                    st.download_button(
+                        "下载", 
+                        f_item.read(), 
+                        file_name=display_name, 
+                        mime="image/jpeg", 
+                        key=f"d_{fname}"
+                    )
     else:
         st.caption("暂无暂存文件")
