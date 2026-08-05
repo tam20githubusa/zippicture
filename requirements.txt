@@ -1,3 +1,4 @@
 streamlit
 pillow
 streamlit-paste-button
+starlette<0.36.0
