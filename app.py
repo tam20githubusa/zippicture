@@ -3,7 +3,7 @@ import random
 import io
 import streamlit as st
 from PIL import Image
-from streamlit_paste_element import paste_image_button
+from streamlit_paste_button import paste_image_button
 
 # 页面基础配置
 st.set_page_config(page_title="极速本地图片批量压缩", layout="centered")
@@ -123,7 +123,7 @@ else:
         for f in uploaded_files:
             images_to_process.append({"bytes": f.getvalue(), "name": f.name})
 
-    # 剪贴板图片解析
+    # 安全地解析剪贴板粘贴的数据
     if paste_result and hasattr(paste_result, "image_data") and paste_result.image_data is not None:
         buf = io.BytesIO()
         paste_result.image_data.convert("RGB").save(buf, format="JPEG")
@@ -151,7 +151,7 @@ else:
 
         st.subheader(f"🖼️ 待处理列表")
 
-        # 使用超小微缩图预览
+        # 使用超小微缩图预览（极小数据量，绝不卡死 CPU）
         for idx, item in enumerate(images_to_process):
             raw_bytes = item["bytes"]
             orig_size_kb = len(raw_bytes) / 1024
