@@ -3,7 +3,7 @@ import random
 import io
 import streamlit as st
 from PIL import Image
-from streamlit_paste_button import paste_image_button
+from streamlit_paste_element import paste_image_button
 
 # 页面基础配置
 st.set_page_config(page_title="极速本地图片批量压缩", layout="centered")
@@ -123,7 +123,7 @@ else:
         for f in uploaded_files:
             images_to_process.append({"bytes": f.getvalue(), "name": f.name})
 
-    # 保留并防御性读取剪贴板图片
+    # 剪贴板图片解析
     if paste_result and hasattr(paste_result, "image_data") and paste_result.image_data is not None:
         buf = io.BytesIO()
         paste_result.image_data.convert("RGB").save(buf, format="JPEG")
@@ -151,7 +151,7 @@ else:
 
         st.subheader(f"🖼️ 待处理列表")
 
-        # 使用超小微缩图预览（极小数据量，绝不卡死 CPU）
+        # 使用超小微缩图预览
         for idx, item in enumerate(images_to_process):
             raw_bytes = item["bytes"]
             orig_size_kb = len(raw_bytes) / 1024
@@ -179,4 +179,43 @@ else:
     top_col1, top_col2 = st.columns([3, 1])
     with top_col1:
         st.subheader("📁 云端已暂存的文件")
-    with top_
+    with top_col2:
+        if files:
+            if st.button("🗑️ 清空暂存", type="secondary"):
+                for fname in files:
+                    file_path = os.path.join(TEMP_DIR, fname)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                st.toast("已清空！", icon="🧹")
+                st.rerun()
+
+    if files:
+        for idx, fname in enumerate(files):
+            fid = fname.split("_")[0]
+            display_name = fname.split("_", 1)[1] if "_" in fname else fname
+            fpath = os.path.join(TEMP_DIR, fname)
+            fsize = os.path.getsize(fpath) / 1024
+            
+            with open(fpath, "rb") as f_item:
+                f_bytes = f_item.read()
+
+            # 底部列表也渲染小图标
+            tiny_b = generate_tiny_thumbnail(f_bytes)
+
+            c0, c1, c2, c3 = st.columns([0.8, 2, 1, 1])
+            with c0:
+                st.image(tiny_b, width=50)
+            with c1:
+                st.text(f"{display_name}\n({fsize:.1f} KB)")
+            with c2:
+                st.markdown(f'<a href="?id={fid}" target="_self" style="display:block; text-align:center; padding:0.4rem; background:#F0F2F6; color:#333; border-radius:6px; text-decoration:none; font-size:0.85rem;">👁️ 查看</a>', unsafe_allow_html=True)
+            with c3:
+                st.download_button(
+                    label="⬇️ 下载", 
+                    data=f_bytes, 
+                    file_name=display_name, 
+                    mime="image/jpeg", 
+                    key=f"tiny_dl_{idx}_{fid}"
+                )
+    else:
+        st.caption("暂无文件，点击上方【一键压缩并暂存所有图片】即可生成。")
